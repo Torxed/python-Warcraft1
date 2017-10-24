@@ -74,21 +74,22 @@ def pad(b, l=4):
 # Q - size 8
 # n - size 16
 class WAR_RESOURCE():
-	def __init__(self, index, data, compressed):
+	def __init__(self, index, data):
 		#print(data)
 		#else:
 		#	print(data[:len(THUNK)])
-		align = data[2] # 3:d byte
-		self.data_len = unpack('<H', data[:2])[0] + (align << 16)
-		self.compressed = True if data[3] != b'\x00' else False
+		#align = data[2] # 3:d byte
+		self.data_len = unpack('<I', data[:4])[0] & 0x1FFFFFFF
+		self.compressed = True if bin(self.data_len)[2:][3] == '1' else False
+		data = data[4:] # Strips the header
 		#self.compressed = compressed
 
 		self.IMG, self.CUR, self.SPR = 0, 1, 2
 
 		if self.compressed:
-			self.data = lzw_decompress(data[3:])
+			self.data = lzw_decompress(data)
 		else:
-			self.data = data[3:]
+			self.data = data
 
 			#try:
 			#	for b in lzw.decompress(data[3:]):
@@ -104,11 +105,7 @@ class WAR_RESOURCE():
 		#if self.type == 'image':
 		#	print(self.data)
 		if self.type == 'wave' and len(self.data) < 3000:
-			with open('test.wav', 'wb') as fh:
-				print()
-				print(data)
-				print(self.data)
-				print()
+			with open('data.wav', 'wb') as fh:
 				fh.write(self.data)
 
 		#self.detect_dataType()
@@ -155,6 +152,7 @@ class WAR():
 		##
 
 		header_bytes = self.data[:8] # Out of our 8 byte header
+		self.data = self.data[8:]
 
 		#archive_id =  # the first 4 are the archive ID only
 		#entries =  # And this will be the nr_of_files+compressed bytes.
@@ -163,18 +161,22 @@ class WAR():
 		self.num_o_files = unpack('<I', header_bytes[4:])[0] # The first byte is num of files.
 		#self.lz = True if unpack('<I', pad(entries[1:]))[0]==2 else False # the 3 last bytes are meta.
 		#self.retail = True if self.id == 24 else False
-		self.lz = True
-		self.retail = True
+		self.retail = True if self.id == 24 else False
 
 		print('Archive:', self.archive)
 		print('Archive ID:', self.id,'[Retail]' if self.retail else '[Demo]')
 		print('Num o files:', self.num_o_files)
-		print('Is compressed:', self.lz)
 
 		self.offsets = []
 		bytesize = 4
 		for i in range(self.num_o_files):
-			self.offsets.append(unpack('<I', self.data[bytesize+(bytesize*i):bytesize+(bytesize*i)+bytesize])[0])
+			offset = unpack('<I', self.data[bytesize*i:(bytesize*i)+bytesize])[0]
+			## == If the offset is 0000 or FFFF it means it's a placeholder.
+			##    Mainly these orriginates from DEMO or Pre-release versions of the game.
+			##    But we still need to deal with them just in case.
+			if offset == 0 or offset == 4294967295:
+				offset = -1
+			self.offsets.append(offset)
 
 		#print('Offsets:', self.offsets)
 
@@ -185,15 +187,21 @@ class WAR():
 		#	data_pos = meta%4096
 		#else:
 #			for index, data_start in enumerate(self.offsets):
+
+		## == Data start is the offset stored in offsets[x].
+		##    And we find the end of the data by checking the next offset.
+		##    Since we know the data can't be longer than the next position in offsets.
 		for i in range(len(self.offsets)):
 			data_start = self.offsets[i]
+			if data_start == -1: continue # It's a placeholder.
+
 			if i+1 == len(self.offsets):
 				data_stop = len(self.data)
 			else:
 				data_stop = self.offsets[i+1]
 
 			#print(data_start, data_stop)
-			self.objects[i] = WAR_RESOURCE(i, self.data[data_start:data_stop], compressed=self.lz)
+			self.objects[i] = WAR_RESOURCE(i, self.data[data_start:data_stop])
 
 			if not self.objects[i].type in self.contains:
 				self.contains[self.objects[i].type] = 0
@@ -235,7 +243,9 @@ class WAR():
 			#	fh.write(data)
 
 
-archive = WAR('../wc1/WARCRAFT_1/DATA/DATA.WAR')
+import sys
+archive = WAR(sys.argv[1])
+#archive = WAR('../wc1/WARCRAFT_1/DATA/DATA.WAR')
 #archive = WAR('../wc1/WARCRAFT_1/DATA/TITLE.WAR')
 #print('Archive ID:', archive.id)
 #print('Num files:', archive.num_o_files)
