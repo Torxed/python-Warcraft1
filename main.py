@@ -1,130 +1,212 @@
 #import lzw # Was slightly broken spewing out "EOS" errors.
 from struct import *
 from time import sleep # DEBUG
+from io import BytesIO
+from os import mkdir
+from os.path import isdir, isfile
 
 from config import conf
 
-# unpack('hhl', '\x00\x01\x00\x02\x00\x00\x00\x03')
-# The main difference is that Warcraft II, megatiles are 32x32 (made of 16 8x8 Minitiles) whereas War1 is 16x16 (4 8x8 minitiles).
+# https://github.com/magical/nlzss/blob/master/lzss3.py#L36
+# https://github.com/Wargus/war1gus/blob/master/war1tool.c
+# https://github.com/plasticlogic/pldata/blob/master/lzss/python/pylzss.c
+# https://github.com/Wargus/wargus
+# https://github.com/Wargus/war1gus/blob/master/war1tool.c
+# https://github.com/Wargus/stratagus/issues/198
+# https://github.com/bradc6
+# https://github.com/Stratagus/libwararch/blob/master/SampleSource/ExtractFile/main.cpp
+# https://github.com/Stratagus/libwararch/blob/master/Source/WarArchive/WarArchive.cpp
 
-## == Not yet modified to handle bytes data.
-##    https://rosettacode.org/wiki/LZW_compression#Python
-#def lzw_compress(uncompressed):
-#	"""Compress a string to a list of output symbols."""
-#
-#	# Build the dictionary.
-#	dict_size = 256
-#	dictionary = dict((chr(i), i) for i in xrange(dict_size))
-#	# in Python 3: dictionary = {chr(i): i for i in range(dict_size)}
-#
-#	w = ""
-#	result = []
-#	for c in uncompressed:
-#		wc = w + c
-#		if wc in dictionary:
-#			w = wc
-#		else:
-#			result.append(dictionary[w])
-#			# Add wc to the dictionary.
-#			dictionary[wc] = dict_size
-#			dict_size += 1
-#			w = c
-#
-#	# Output the code for w.
-#	if w:
-#		result.append(dictionary[w])
-#	return result
+def ConvertPalette(data):
+	for i in range(768): # PNG needs 0-256
+		data[i] <<= 2
 
-def lzw_decompress(compressed):
-	"""Decompress a list of output ks to a string."""
-	from io import BytesIO
- 
-	# Build the dictionary.
-	dict_size = 256
-	dictionary = dict((bytes([i]), bytes([i])) for i in range(dict_size))
- 
-	# use StringIO, otherwise this becomes O(N^2)
-	# due to string concatenation in a loop
-	result = BytesIO()
-	w = bytes([compressed[0]])
-	result.write(w)
-	for k in compressed[1:]:
-		k = bytes([k])
-		if k in dictionary:
-			entry = dictionary[k]
-		elif k == dict_size:
-			entry = w + w[0]
-		else:
-			raise ValueError('Bad compressed k: %s' % k)
-		result.write(entry)
- 
-		# Add w+entry[0] to the dictionary.
-		dictionary[dict_size] = w + bytes([entry[0]])
-		dict_size += 1
- 
-		w = entry
-	return result.getvalue()
+	return data
+
+def ConvertImg(data):
+	offset = 0
+	width = unpack('<H', data[offset:offset+2])
+	offset += 2
+	height = unpack('<H', data[offset:offset+2])
+	offset += 2
+
+	image = [ data[i] for i in range(width*height) ]
+
+	for i in range(width*height):
+		if image[i] == 96:
+			image[i] = 255
+
+	return image
+
+def ConvertImage(data):
+	image = ConvertImg(data)
+	ConvertPalette(image)
+
+	#sprintf(buf, "%s/%s/%s.png", Dir, GRAPHIC_PATH, file);
+	#CheckPath(buf);
+
+	#ResizeImage(&image, w, h, 2 * w, 2 * h);
+	#SavePNG(buf, image, 2 * w, 2 * h, palp, -1)
+
+def lss2_decompress(data, unCompressedFileLength):
+	"""
+	This is the most messy code ever written.
+	But it does the job, and both this cred goes to:
+		https://github.com/Wargus/war1gus/blob/master/war1tool.c#L1180
+	"""
+	buf = [ 0x00 for i in range(4096) ]
+	fileData = [ None for i in range(unCompressedFileLength) ]
+	compData = BytesIO(data)
+	compData.seek(0)
+
+	dp = 0
+	bi = 0
+	ep = dp + unCompressedFileLength
+
+	while dp < ep:
+		bflags = unpack('<B', compData.read(1))[0]
+		for i in range(8):
+			if bflags & 1:
+				j = unpack('<B', compData.read(1))[0]
+				
+				#*dp++ = j;
+				fileData[dp] = j
+				dp += 1
+				
+				bi &= 0xFFF
+				buf[bi] = j
+				bi+=1
+			else:
+				o = unpack('<H', compData.read(2))[0]
+				j = (o >> 12) + 3;
+				o &= 0xFFF;
+				while (j):
+					o &= 0xFFF
+					bi &= 0xFFF
+					fileData[dp] = buf[o]
+					dp += 1
+					buf[bi] = buf[o]
+					bi += 1
+					o += 1
+					if dp == ep:
+						break
+					j -= 1
+			if dp == ep:
+				break
+			bflags >>= 1
+	return b''.join([pack('<B', x) if type(x) == int else x for x in fileData])
+
+def lss_decompress(data, unCompressedFileLength):
+	## == Allocate a bytes file that is equal to the extracted size.
+	## == Also fill it with b'' as placeholders for when doing index overwrite later.
+	fileData = [ None for i in range(unCompressedFileLength) ]
+	## == Convert the data into a file object to handle read/jumpaheads
+	compData = BytesIO(data)
+	compData.seek(0)
+
+	## == Current write position in the fileData
+	currentWritePos = 0
+	## == A look ahead index
+	byteIndex = 0
+	## == Create a lookup table for the decompression algo.
+	lookAheadBuffer = [ 0x00 for i in range(4096) ]
+	currentProcessingByte = 0
+
+	DEBUG = 0
+
+	while currentProcessingByte < unCompressedFileLength:
+		byteFlags = unpack('<B', compData.read(1))[0] # 1 byte
+		#print('Read byteFlags:', byteFlags)
+
+		for x in range(8):
+			if byteFlags & 1:
+				dataByte = unpack('<B', compData.read(1))[0]
+				#print('Writing at Position:', currentWritePos,'dataByte:', dataByte)
+
+				fileData[currentWritePos] = dataByte
+				currentWritePos += 1
+
+				byteIndex &= 0xFFF
+				lookAheadBuffer[byteIndex] = byteFlags
+				byteIndex += 1
+				currentProcessingByte += 1
+			else:
+				try:
+					repeatByte = unpack('<H', compData.read(2))[0]
+				except:
+					print(len(data), unCompressedFileLength, currentProcessingByte)
+					return data
+
+				dataByte = (repeatByte >> 12) + 3 # Wtf is this 3 doing here?
+				repeatByte &= 0xFFF
+
+
+				while dataByte:
+					repeatByte &= 0xFFF
+					byteIndex &= 0xFFF
+					fileData[currentWritePos] = lookAheadBuffer[repeatByte]
+					currentWritePos += 1
+					lookAheadBuffer[byteIndex] = lookAheadBuffer[repeatByte]
+					repeatByte += 1
+					byteIndex += 1
+
+					currentProcessingByte += 1
+					if currentProcessingByte == unCompressedFileLength:
+						break
+
+					dataByte -= 1
+			if currentProcessingByte == unCompressedFileLength:
+				break
+
+		byteFlags >>= 1
+
+	return b''.join([pack('<B', x) if type(x) == int else x for x in fileData])
 
 def pad(b, l=4):
 	return b+(b'\x00'*(l-len(b)))
 
-# B - size 1
-# H - size 2
-# I - size 4
-# Q - size 8
-# n - size 16
 class WAR_RESOURCE():
-	def __init__(self, index, data):
-		#print(data)
-		#else:
-		#	print(data[:len(THUNK)])
-		#align = data[2] # 3:d byte
-		self.data_len = unpack('<I', data[:4])[0] & 0x1FFFFFFF
-		self.compressed = True if bin(self.data_len)[2:][3] == '1' else False
+	def __init__(self, index, data, size):
+		self.size = size
+		self.found_size = unpack('<I', data[:4])[0]
+		#print(bin(self.data_len)[2:])
+		#self.compressed = True if bin(self.data_len)[2:][3] == '1' else False
+		self.compressed = True if self.found_size >> 24 == 0x20 else False
+		self.extracted_size = self.found_size & 0x1FFFFFFF
+		self.corrupted = False
+
+		if index == 473:
+			print('[#{}]<Comp:{}> Packed Size: {}, Extracted size: {}'.format(index, self.compressed, size, self.extracted_size))
+			
 		data = data[4:] # Strips the header
 		#self.compressed = compressed
 
 		self.IMG, self.CUR, self.SPR = 0, 1, 2
 
 		if self.compressed:
-			self.data = lzw_decompress(data)
+			#if index == 473:
+			#self.data = lzw_decompress(data)
+			#try:
+			self.data = lss2_decompress(data, self.extracted_size)
+			#except:
+			#	print(index,'is corrupted')
+			#	self.corrupted = True
+			#	self.data = data
 		else:
+			print(index,'is not compressed')
 			self.data = data
 
-			#try:
-			#	for b in lzw.decompress(data[3:]):
-			#		decompData += b
-			#except ValueError:
-			#	return None
-			#except TypeError:
-			#	return None
-
-			#print(decompData)
 
 		self.type = conf['sprites'][index]['type']
-		#if self.type == 'image':
-		#	print(self.data)
-		if self.type == 'wave' and len(self.data) < 3000:
-			with open('data.wav', 'wb') as fh:
-				fh.write(self.data)
+		if not self.corrupted:
+			if not isdir('./dump/'+self.type):
+				mkdir('./dump/'+self.type)
+		
+			#with open('./dump/'+self.type+'/'+str(index)+'.'+self.type, 'wb') as fh:
+			#	fh.write(self.data)
 
-		#self.detect_dataType()
-
-	#def detect_dataType(self):
-		#print()
-		# .IMG ?
-		#width = unpack('<H', self.data[:2])[0]
-		#height = unpack('<H', self.data[2:4])[0]
-		#print('W x H:', (width, height))
-		#if width < 800 and height < 600:
-		#	return self.IMG
-
-		# .SPR ?
-		#frames = unpack('<H', self.data[:2])[0]
-		#print('Frames:', frames)
-		#if frames < 100:
-		#	return self.SPR
-	#	pass
+		#print('\nSelf data:',self.data)
+		#print('\nData:', data)
 
 class WAR():
 	def __init__(self, WAR_FILE):
@@ -137,6 +219,7 @@ class WAR():
 		self.lz = False
 		self.objects = {}
 		self.contains = {}
+		self.header_size = 8
 
 		self.header = self.parse_header()
 		self.read_file_table()
@@ -151,11 +234,52 @@ class WAR():
 		##    [  f_1 start |  f_2 start  | f_3 start  ] * ammount of files
 		##
 
-		header_bytes = self.data[:8] # Out of our 8 byte header
-		self.data = self.data[8:]
+		# B - size 1
+		# H - size 2
+		# I - size 4
+		# Q - size 8
+		# n - size 16
 
-		#archive_id =  # the first 4 are the archive ID only
-		#entries =  # And this will be the nr_of_files+compressed bytes.
+		## 473 == wav, and should play fine.
+		# Extracting Entity #473
+		# Entity #473 has offset: 1621169 uncompressed Size: 51244
+		# Allocating unCompressedFile data size: 51244
+
+		## == Known first offset: 2340 //2344 according to shit appl
+		## == Known comressed len: 16830
+
+		# Deleting currentArchiveFileStream
+		# Deleting vector fileOffsets
+		# Opening file war1.war
+		# Magic Number: 24 Number of Entities: 583 Type: 0
+		# File #0  has data Offset: 2340
+		# File #1  has data Offset: 19174
+		# File #2  has data Offset: 35429
+		# File #3  has data Offset: 51377
+		# File #4  has data Offset: 66937
+		# File #5  has data Offset: 78300
+		# File #6  has data Offset: 92159
+		# File #7  has data Offset: 94991
+		# File #8  has data Offset: 98207
+		# File #9  has data Offset: 102641
+
+		# Extracting Entity #0
+		# Entity #0 has offset: 2340 uncompressed Size: 25272
+		# Allocating unCompressedFile data size: 25272
+		# Read byteFlags: �
+		# Writing at Position: 0 dataByte: 70
+		# Writing at Position: 1 dataByte: 79
+		# Writing at Position: 2 dataByte: 82
+		# Writing at Position: 3 dataByte: 77
+		# Writing at Position: 4 dataByte: 0
+		# Writing at Position: 5 dataByte: 0
+		# Writing at Position: 6 dataByte: 0
+		# Writing at Position: 7 dataByte: 14
+		# Writing at Position: 8 dataByte: 88
+		# Writing at Position: 9 dataByte: 68
+
+
+		header_bytes = self.data[0:self.header_size]
 
 		self.id = unpack('<I', header_bytes[:4])[0]
 		self.num_o_files = unpack('<I', header_bytes[4:])[0] # The first byte is num of files.
@@ -168,14 +292,17 @@ class WAR():
 		print('Num o files:', self.num_o_files)
 
 		self.offsets = []
-		bytesize = 4
+		bytesize = calcsize('<I') # This is the size of each offset-position value.
 		for i in range(self.num_o_files):
-			offset = unpack('<I', self.data[bytesize*i:(bytesize*i)+bytesize])[0]
+			offset = unpack('<I', self.data[self.header_size+(bytesize*i):self.header_size+(bytesize*i)+bytesize])[0]
 			## == If the offset is 0000 or FFFF it means it's a placeholder.
 			##    Mainly these orriginates from DEMO or Pre-release versions of the game.
 			##    But we still need to deal with them just in case.
 			if offset == 0 or offset == 4294967295:
 				offset = -1
+
+			if i == 473:
+				print('File #{} has offset {}'.format(i, offset))
 			self.offsets.append(offset)
 
 		#print('Offsets:', self.offsets)
@@ -193,7 +320,9 @@ class WAR():
 		##    Since we know the data can't be longer than the next position in offsets.
 		for i in range(len(self.offsets)):
 			data_start = self.offsets[i]
-			if data_start == -1: continue # It's a placeholder.
+			if data_start == -1:
+				print('Placeholder...')
+				continue # It's a placeholder.
 
 			if i+1 == len(self.offsets):
 				data_stop = len(self.data)
@@ -201,7 +330,11 @@ class WAR():
 				data_stop = self.offsets[i+1]
 
 			#print(data_start, data_stop)
-			self.objects[i] = WAR_RESOURCE(i, self.data[data_start:data_stop])
+			#if i == 473:
+			self.objects[i] = WAR_RESOURCE(i, self.data[data_start:data_stop], size=data_stop-data_start)
+			#else:
+			#	continue
+
 
 			if not self.objects[i].type in self.contains:
 				self.contains[self.objects[i].type] = 0
