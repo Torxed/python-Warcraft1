@@ -5,3 +5,5 @@
 **/*.wav
 **/*.psd
 **/*WARCRAFT_1
+**/*dead_code.py
+**/*dump.py
