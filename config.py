@@ -1,4 +1,19 @@
+class Resolution():
+	def __init__(self, scaler):
+		self._width = 320
+		self._height = 200
+		self._scaler = scaler
+	def width(self):
+		return int(self._width * self._scaler)
+	def height(self):
+		return int(self._height * self._scaler)
+	def scale(self):
+		return self._scaler
+
+
 conf = {}
+conf['resolution'] = Resolution(scaler=2.5)
+
 conf['sprites'] = {}
 conf['sprites'][0] = {'type' : 'music', 'data' : None, 'description' : ''}
 conf['sprites'][1] = {'type' : 'music', 'data' : None, 'description' : ''}
