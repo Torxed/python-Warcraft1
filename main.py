@@ -189,6 +189,25 @@ class main_menu(generic_sprite):
 
 		#self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False)
 
+class AnimatedSprite(generic_sprite):
+	def __init__(self, war_data, palette, batch=None, x=10, y=10):
+		self.war_data = war_data
+		self.war_data.convert_frames(palette)
+		
+		super(AnimatedSprite, self).__init__(self.war_data.frames[0]['image'], width=war_data.max_width, height=war_data.max_height, alpha=0, batch=batch, x=x, y=y)
+		self.palette = palette
+		self.index = 0
+		self.last_update = time()
+
+	def update(self):
+		if time() - self.last_update > 0.25:
+			self.index += 1
+			if self.index >= self.war_data.frameCount:
+				self.index = 0
+			self.texture = self.war_data.frames[self.index]['image']
+			self.last_update = time()
+#		self.frames[i] = {'width': width, 'height' : height, 'xOffset' : xoff, 'yOffset' : yoff, 'frameOffset' : frameOffset, 'data' : None}
+
 class main(pyglet.window.Window):
 	def __init__ (self, width=conf['resolution'].width(), height=conf['resolution'].height(), *args, **kwargs):
 		super(main, self).__init__(width, height, *args, **kwargs)
@@ -196,12 +215,13 @@ class main(pyglet.window.Window):
 
 		self.sprites = OrderedDict()
 		__builtins__.__dict__['game_data'] = WAR(sys.argv[1])
-		self.pages = {'default' : {'batch' : pyglet.graphics.Batch(), 'sprites' : {}}}
-		self.pages['main_menu'] = {'batch' : pyglet.graphics.Batch(), 'sprites' : {}}
+		self.pages = {'default' : {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}}
+		self.pages['main_menu'] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}
 		self.active_page = 'main_menu'
 		self.active_sprites = OrderedDict()
 
-		self.add_sprite('main_menu', 'page', main_menu(batch=self.pages['main_menu']['batch']))
+		self.add_sprite(page='main_menu', itemName='main_menu', obj=main_menu(batch=self.pages['main_menu']['batch']))
+		self.add_sprite(page='main_menu', itemName='house', obj=AnimatedSprite(war_data=game_data.sprites[315], palette=game_data.colorPalettes[416], batch=self.pages['main_menu']['batch'], x=30, y=30))
 		#self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False))
 		
 		#for image in game_data.images:
@@ -214,13 +234,13 @@ class main(pyglet.window.Window):
 		self.drag = False
 		self.alive = 1
 
-	def add_sprite(self, page, title, obj):
+	def add_sprite(self, page, itemName, obj):
 		if not page in self.pages:
-			self.pages[page] = {'batch' : pyglet.graphics.Batch(), 'sprites' : {}}
+			self.pages[page] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}
 
 		obj.set_batch(self.pages[page]['batch'])
-		self.pages[page]['sprites'][title] = obj
-		self.sprites[title] = obj
+		self.pages[page]['sprites'][itemName] = obj
+		self.sprites[itemName] = obj
 
 	def on_draw(self):
 		self.render()

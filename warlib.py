@@ -168,6 +168,10 @@ class WAR_SPRITE(WAR_RESOURCE):
 
 			self.frames[i]['data'] = rows
 
+	def convert_frames(self, palette, gamma_correction=conf['gamma_correction'], supress_gamma=True):
+		for index in self.frames:
+			self.frames[index]['image'] = self.to_png(index, palette, gamma_correction, supress_gamma)
+
 	def to_png(self, frame, palette, gamma_correction=conf['gamma_correction'], supress_gamma=True):
 		""" It's not actually a full fledged PNG.
 		But sort of is. Just missing the header."""
