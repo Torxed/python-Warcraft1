@@ -1,10 +1,5 @@
 #import lzw # Was slightly broken spewing out "EOS" errors.
-import sys
-from struct import *
 from time import sleep # DEBUG
-from io import BytesIO
-from os import mkdir
-from os.path import isdir, isfile
 import pyglet
 from pyglet.gl import *
 from collections import OrderedDict
@@ -15,6 +10,7 @@ pyglet.options['audio'] = ('alsa', 'openal', 'silent')
 key = pyglet.window.key
 
 from config import conf
+from warlib import *
 
 ## == General credits:
 # https://github.com/magical/nlzss/blob/master/lzss3.py#L36
@@ -34,245 +30,34 @@ from config import conf
 # https://en.wikipedia.org/wiki/Indexed_color
 # https://en.wikipedia.org/wiki/List_of_monochrome_and_RGB_palettes#3-3-2_bit_RGB
 
-def lss_decompress(data, unCompressedFileLength):
-	"""
-	This is the most messy code ever written.
-	But it does the job, and both this cred goes to:
-		https://github.com/Wargus/war1gus/blob/master/war1tool.c#L1180
-	"""
-	buf = [ 0x00 for i in range(4096) ]
-	fileData = [ None for i in range(unCompressedFileLength) ]
-	compData = BytesIO(data)
-	compData.seek(0)
+# id:216_pal:217
 
-	dp = 0
-	bi = 0
-	ep = dp + unCompressedFileLength
-
-	while dp < ep:
-		bflags = unpack('<B', compData.read(1))[0]
-		for i in range(8):
-			if bflags & 1:
-				j = unpack('<B', compData.read(1))[0]
-				
-				#*dp++ = j;
-				fileData[dp] = j
-				dp += 1
-				
-				bi &= 0xFFF
-				buf[bi] = j
-				bi+=1
-			else:
-				o = unpack('<H', compData.read(2))[0]
-				j = (o >> 12) + 3;
-				o &= 0xFFF;
-				while (j):
-					o &= 0xFFF
-					bi &= 0xFFF
-					fileData[dp] = buf[o]
-					dp += 1
-					buf[bi] = buf[o]
-					bi += 1
-					o += 1
-					if dp == ep:
-						break
-					j -= 1
-			if dp == ep:
-				break
-			bflags >>= 1
-
-	return b''.join([pack('<B', x) if type(x) == int else x for x in fileData])
-
-class WAR_RESOURCE():
-	def __init__(self, index, data, size):
-		"""
-		This is functionality all .war resources share.
-		Mainly that they're compressed/uncompressed,
-		they have a data-len(size) and extracted size (found in data).
-		"""
-		self.type = conf['sprites'][index]['type']
-
-		self.size = size
-		self.found_size = unpack('<I', data[:4])[0]
-		self.compressed = True if self.found_size >> 24 == 0x20 else False
-		self.extracted_size = self.found_size & 0x1FFFFFFF
-		self.corrupted = False
-
-		#print('[#{}]<Comp:{}> Packed Size: {}, Extracted size: {}'.format(index, self.compressed, size, self.extracted_size))
-			
-		data = data[4:] # Strips the header
-
-		if self.compressed:
-			#self.data = lzw_decompress(data)
-			try:
-				self.data = lss_decompress(data, self.extracted_size)
-			except:
-				print(index,'is corrupted')
-				self.corrupted = True
-				self.data = data
-		else:
-			self.data = data
-
-		#if not self.corrupted:
-		#	if not isdir('./dump/'+self.type):
-		#		mkdir('./dump/'+self.type)
-
-class WAR_PALETTE(WAR_RESOURCE):
-	def __init__(self, index, data, size):
-		super(WAR_PALETTE, self).__init__(index, data, size)
-		self.shades = {'R' : b'', 'G': b'', 'B' : b''}
-
-		try:
-			for index in range(0, len(self.data), 3):
-				RGB = unpack('<3B', self.data[index:index+3])
-				self.shades['R'] += pack('<B', RGB[0])
-				self.shades['G'] += pack('<B', RGB[1])
-				self.shades['B'] += pack('<B', RGB[2])
-		except:
-			print(len(self.data), len(self.data)/3)
-			self.corrupted = True
-
-	def __getitem__(self, key):
-		if key.upper() in self.shades:
-			return self.shades[key.upper()]
-		else:
-			raise KeyError('{} is not in the color palette. Valid options: {}'.format(key, ', '.join([key for key in self.shades])))
-
-	def __repr__(self):
-		return str(self.shades)
-
-class WAR_IMAGE(WAR_RESOURCE):
-	def __init__(self, index, data, size):
-		super(WAR_IMAGE, self).__init__(index, data, size)
-
-	def to_png(self, palette, gamma_correction=2.5, supress_gamma=True):
-		""" It's not actually a full fledged PNG.
-		But sort of is. Just missing the header."""
-
-		## == First four bytes, is the width and height.
-		width = unpack('<H', self.data[0:2])[0]
-		height = unpack('<H', self.data[2:4])[0]
-		data = self.data[4:]
-
-		## == The rest is palette-positions, not RGB colors.
-		## == First, we create a solid image-placeholder with RGBA format.
-		img = gen_solid_image(width, height)
-		## == We create row placeholders,
-		##    Mainly becase WAR images are calculated from top down
-		##    but PNG/RGBA are bottom up format. So at the end, we'll do a
-		##    reverse(rows) before building the image.
-		rows = [b'']*height
-		index = 0
-		for y in range(height):
-			for x in range(width):
-				c8bit = unpack('<B', data[index:index+1])[0]
-				try:
-					r,g,b,a = palette['R'][c8bit], palette['G'][c8bit], palette['B'][c8bit], 255
-				except:
-					raise KeyError('Color {} not in palette: {}'.format((r,g,b,a), palette))
-
-				if supress_gamma:
-					rows[y] += pack('<4B', *(min(int(r*gamma_correction), 255), min(int(g*gamma_correction), 255), min(int(b*gamma_correction), 255), a))
-				else:
-					try:
-						rows[y] += pack('<4B', *(int(r*gamma_correction), int(g*gamma_correction), int(b*gamma_correction), a))
-					except:
-						raise ValueError('Gamma {} to high.'.format((int(r*gamma_correction), int(g*gamma_correction), int(b*gamma_correction), a)))
-				index += 1
-
-		img.data = b''.join(rows[::-1])#new_data#[::-1]
-		return img
-
-class WAR():
-	def __init__(self, WAR_FILE):
-		self.archive = WAR_FILE
-		with open(self.archive, 'rb') as fh:
-			self.data = fh.read()
-
-		self.id = 0
-		self.num_o_files = 0
-		self.lz = False
-		self.contains = {}
-		self.header_size = 8
-
-		self.objects = {}
-		self.color_palette = {}
-		self.images = {}
-
-		self.header = self.parse_header()
-		self.read_file_table()
-
-
-	def parse_header(self):
-		## == /doc/war_header.png
-
-		# B - size 1
-		# H - size 2
-		# I - size 4
-		# Q - size 8
-		# n - size 16
-
-		header_bytes = self.data[0:self.header_size]
-
-		self.id = unpack('<I', header_bytes[:4])[0]
-		## == There's two ways people do this:
-		##    First is that 4 bytes == num of files.
-		##    The other using <H (2 bytes) as numOfFiles and
-		##    The remainder two bytes as a magic number (?)
-		self.num_o_files = unpack('<I', header_bytes[4:])[0] # The first byte is num of files.
-		self.retail = True if self.id == 24 else False
-
-		print('Archive:', self.archive)
-		print('Archive ID:', self.id,'[Retail]' if self.retail else '[Demo]')
-		print('Num o files:', self.num_o_files)
-
-		self.offsets = []
-		bytesize = calcsize('<I') # This is the size of each offset-position value.
-		for i in range(self.num_o_files):
-			offset = unpack('<I', self.data[self.header_size+(bytesize*i):self.header_size+(bytesize*i)+bytesize])[0]
-			## == If the offset is 0000 or FFFF it means it's a placeholder.
-			##    Mainly these orriginates from DEMO or Pre-release versions of the game.
-			##    But we still need to deal with them just in case.
-			if offset == 0 or offset == 4294967295:
-				offset = -1
-
-			if i == 473:
-				print('File #{} has offset {}'.format(i, offset))
-			self.offsets.append(offset)
-
-	def read_file_table(self):
-		for i in range(len(self.offsets)):
-			data_start = self.offsets[i]
-			if data_start == -1:
-				print('Placeholder...')
-				continue # It's a placeholder.
-						 # Typically only happens in demo versions.
-
-			if i+1 == len(self.offsets):
-				data_stop = len(self.data)
-			else:
-				data_stop = self.offsets[i+1]
-
-			#self.objects[i] = WAR_RESOURCE(i, self.data[data_start:data_stop], size=data_stop-data_start)
-			if conf['sprites'][i]['type'] == 'palette':
-				self.color_palette[i] = WAR_PALETTE(i, self.data[data_start:data_stop], size=data_stop-data_start)
-				self.objects[i] = self.color_palette[i]
-
-			elif conf['sprites'][i]['type'] == 'image':
-				self.images[i] = WAR_IMAGE(i, self.data[data_start:data_stop], size=data_stop-data_start)
-				self.objects[i] = self.images[i]
-
-			#else:
-			#	self.objects[i] = WAR_RESOURCE(i, self.data[data_start:data_stop], size=data_stop-data_start)
-
-			## == Counter of objects
-			if i in self.objects:
-				if not self.objects[i].type in self.contains:
-					self.contains[self.objects[i].type] = 0
-				self.contains[self.objects[i].type] += 1
-
-		for key, val in self.contains.items():
-			print(' -',key,' (' + str(val) + ' of them)')
+# key = image_id, val = palette_id
+image_map = {216 : 217,
+			218 : 217,
+			219 : 217,
+			220 : 217, # 262?
+			221 : 217, # 262?
+			222 : 217, # 262?
+			223 : 217, # 262?
+			224 : 217, # 262?
+			225 : 217, # 262?
+			226 : 217, # 262?
+			227 : 217, # 262?
+			228 : 217, # 262?
+			229 : 217, # 262?
+			233 : 217, # 262?
+			234 : 217,
+			235 : 217, # 262?
+			236 : 217, # 262?
+			237 : 217, # 262?
+			238 : 217,
+			239 : 217,
+			#233 : 217,
+			#233 : 217,
+			#233 : 217,
+			#233 : 217,
+			}
 
 def gen_solid_image(width, height, color='#FF0000', alpha=255):
 	if type(color) == str:
@@ -288,18 +73,22 @@ def gen_solid_image(width, height, color='#FF0000', alpha=255):
 	return pyglet.image.SolidColorImagePattern(c).create_image(width, height)
 
 class generic_sprite(pyglet.sprite.Sprite):
-	def __init__(self, texture=None, width=None, height=None, color="#C2C2C2", alpha=int(255), x=None, y=None, moveable=False, batch=None):
+	def __init__(self, texture=None, width=None, height=None, color="#C2C2C2", alpha=int(255), x=None, y=None, moveable=False, batch=None, bind=None):
+		
+		if not width:
+			width = 10
+		if not height:
+			height = 10
+
 		if type(texture) == str:
 			if not texture or not isfile(texture):
 				#print('No texutre could be loaded for sprite, generating a blank one.')
 				## If no texture was supplied, we will create one
-				if not width:
-					width = 10
-				if not height:
-					height = 10
-				self.texture = gfx_helpers.gen_solid_image(width*_UPSCALE_, height*_UPSCALE_, color, alpha)
+				self.texture = gen_solid_image(int(width*conf['resolution'].scale()), int(height*conf['resolution'].scale()), color, alpha)
 			else:
 				self.texture = pyglet.image.load(texture)
+		elif texture is None:
+			self.texture = gen_solid_image(int(width*conf['resolution'].scale()), int(height*conf['resolution'].scale()), color, alpha)
 		else:
 			self.texture = texture
 
@@ -318,6 +107,14 @@ class generic_sprite(pyglet.sprite.Sprite):
 			self.y = 0
 
 		self.moveable = moveable
+
+		if bind:
+			self.click = bind
+
+	def set_batch(self, batch):
+		self.batch = batch
+		for sName, sObj in self.sprites.items():
+			sObj.batch = batch
 
 	def click(self, x, y):
 		"""
@@ -365,22 +162,50 @@ class generic_sprite(pyglet.sprite.Sprite):
 	def _draw(self):
 		self.draw()
 
+def start_game(x, y):
+	print('Starting the game')
+
+class main_menu(generic_sprite):
+	def __init__(self, batch=None):
+		super(main_menu, self).__init__(width=conf['resolution'].width(), height=conf['resolution'].height(), alpha=0, batch=batch)
+
+		self.sprites['background'] = generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False)
+
+		self.sprites['start_game'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
+		self.sprites['start_game'].x = conf['resolution'].width()/2 - self.sprites['start_game'].width/2
+		self.sprites['start_game'].y = conf['resolution'].height()/2 - self.sprites['start_game'].height/2 - 10
+
+		self.sprites['load_existing_game'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
+		self.sprites['load_existing_game'].x = conf['resolution'].width()/2 - self.sprites['load_existing_game'].width/2
+		self.sprites['load_existing_game'].y = conf['resolution'].height()/2 - self.sprites['load_existing_game'].height/2 - 50
+
+		self.sprites['replay_introduction'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
+		self.sprites['replay_introduction'].x = conf['resolution'].width()/2 - self.sprites['replay_introduction'].width/2
+		self.sprites['replay_introduction'].y = conf['resolution'].height()/2 - self.sprites['replay_introduction'].height/2 - 90
+
+		self.sprites['quit'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
+		self.sprites['quit'].x = conf['resolution'].width()/2 - self.sprites['quit'].width/2
+		self.sprites['quit'].y = conf['resolution'].height()/2 - self.sprites['quit'].height/2 - 170
+
+		#self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False)
+
 class main(pyglet.window.Window):
 	def __init__ (self, width=conf['resolution'].width(), height=conf['resolution'].height(), *args, **kwargs):
 		super(main, self).__init__(width, height, *args, **kwargs)
 		self.x, self.y = 0, 0
 
 		self.sprites = OrderedDict()
-		self.game_data = WAR(sys.argv[1])
+		__builtins__.__dict__['game_data'] = WAR(sys.argv[1])
 		self.pages = {'default' : {'batch' : pyglet.graphics.Batch(), 'sprites' : {}}}
 		self.pages['main_menu'] = {'batch' : pyglet.graphics.Batch(), 'sprites' : {}}
 		self.active_page = 'main_menu'
 		self.active_sprites = OrderedDict()
 
-		#self.add_sprite('main_menu', 'background', generic_sprite(self.game_data.images[261].to_png(self.game_data.color_palette[260]), moveable=False))
+		self.add_sprite('main_menu', 'page', main_menu(batch=self.pages['main_menu']['batch']))
+		#self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False))
 		
-		#for image in self.game_data.images:
-		#	self.add_sprite('main_menu', 'background', generic_sprite(self.game_data.images[261].to_png(self.game_data.color_palette[260]), moveable=False))
+		#for image in game_data.images:
+		#	self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False))
 		self.input = ''	
 		self.keymap = {key._0 : 0, key._1 : 1, key._2 : 2, key._3 : 3, key._4 : 4, key._5 : 5, key._6 : 6, key._7 : 7, key._8 : 8, key._9 : 9}
 
@@ -393,7 +218,7 @@ class main(pyglet.window.Window):
 		if not page in self.pages:
 			self.pages[page] = {'batch' : pyglet.graphics.Batch(), 'sprites' : {}}
 
-		obj.batch = self.pages[page]['batch']
+		obj.set_batch(self.pages[page]['batch'])
 		self.pages[page]['sprites'][title] = obj
 		self.sprites[title] = obj
 
@@ -407,7 +232,6 @@ class main(pyglet.window.Window):
 		self.drag = True
 
 		for name, obj in self.active_sprites.items():
-			print('Moving',name)
 			obj.move(dx, dy)
 			break
 
@@ -422,6 +246,8 @@ class main(pyglet.window.Window):
 
 	def on_mouse_release(self, x, y, button, modifiers):
 		if button == 1:
+			for sName, sObj in self.active_sprites.items():
+				sObj.click(x, y)
 			if not key.LCTRL in self.keys:
 				self.active_sprites = OrderedDict()
 
@@ -447,11 +273,11 @@ class main(pyglet.window.Window):
 			self.input = self.input[:-1]
 
 		elif symbol == key.ENTER:
-			if int(self.input) in self.game_data.images:
+			if int(self.input) in game_data.images:
 				print('Loading image:', int(self.input))
-				for palette_id in self.game_data.color_palette.keys():
-					if not self.game_data.color_palette[palette_id].corrupted:
-						self.add_sprite('main_menu', '{}_{}'.format(self.input, palette_id), generic_sprite(self.game_data.images[int(self.input)].to_png(self.game_data.color_palette[palette_id]), moveable=True))
+				for palette_id in game_data.colorPalettes.keys():
+					if not game_data.colorPalettes[palette_id].corrupted:
+						self.add_sprite('main_menu', 'id:{}_pal:{}'.format(self.input, palette_id), generic_sprite(game_data.images[int(self.input)].to_png(game_data.colorPalettes[palette_id]), moveable=True))
 			else:
 				print('Image {} not in resources.'.format(self.input))
 			self.input = ''
@@ -479,8 +305,6 @@ class main(pyglet.window.Window):
 			# but is required for the GUI to not freeze
 			#
 			event = self.dispatch_events()
-
-
 
 x = main()
 x.run()

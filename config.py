@@ -13,6 +13,7 @@ class Resolution():
 
 conf = {}
 conf['resolution'] = Resolution(scaler=2.5)
+conf['gamma_correction'] = 4.0
 
 conf['sprites'] = {}
 conf['sprites'][0] = {'type' : 'music', 'data' : None, 'description' : ''}
