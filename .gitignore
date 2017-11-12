@@ -4,6 +4,7 @@
 **/*.pyc
 **/*.wav
 **/*.psd
+**/*.war
 **/*WARCRAFT_1
 **/*dead_code.py
 **/*dump.py
