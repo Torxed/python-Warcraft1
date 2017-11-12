@@ -99,10 +99,6 @@ class WAR_RESOURCE():
 		else:
 			self.data = data
 
-		#if not self.corrupted:
-		#	if not isdir('./dump/'+self.type):
-		#		mkdir('./dump/'+self.type)
-
 class WAR_SPRITE(WAR_RESOURCE):
 	def __init__(self, index, data, size):
 		super(WAR_SPRITE, self).__init__(index, data, size)
@@ -143,18 +139,8 @@ class WAR_SPRITE(WAR_RESOURCE):
 		self.max_height = unpack('B', self.data[offset:offset+1])[0]
 		offset += 1
 
-		#if self.frameCount % 5 == 0:
-		#	IPR = 5
-		#	length = ((self.frameCount + IPR - 1) / IPR) * IPR
-		#else:
-		#	IPR = 1
-		#	length = self.frameCount
-
 		#print('Frames:', self.frameCount)
 		#print('Size:', self.max_width, self.max_height)
-
-		## 279 == human/units/footman
-		#print(index, self.data[:100])
 
 		for i in range(self.frameCount):
 			xoff = unpack('B', self.data[offset:offset+1])[0]
@@ -172,23 +158,15 @@ class WAR_SPRITE(WAR_RESOURCE):
 				self.frames[i]['frameOffset'] = frameOffset
 				self.frames[i]['width'] = width
 
-			#self.frames[i]['data'] = self.data[]
 			rows = [b'']*height
 			index = 0
 			for y in range(height):
 				for x in range(width):
-					#c8bit = unpack('<B', data[frameOffset+index:frameOffset+index+1])[0]
+					#c8bit = unpack('<B', self.data[frameOffset+index:frameOffset+index+1])[0]
 					rows[y] = rows[y] + self.data[frameOffset+index:frameOffset+index+1]
 					index += 1
 
 			self.frames[i]['data'] = rows
-			#for y in range(self.height):
-			#	frame += self.data[offset:offset+self.width]
-			#	offset += self.width
-
-			#self.frames[i] = frame
-		#print('Final offset:', data_offset_compensation, 'data length:', len(self.data))
-		#exit(1)
 
 	def to_png(self, frame, palette, gamma_correction=conf['gamma_correction'], supress_gamma=True):
 		""" It's not actually a full fledged PNG.
@@ -222,25 +200,7 @@ class WAR_SPRITE(WAR_RESOURCE):
 
 		img.data = b''.join(rows[::-1])#new_data#[::-1]
 		return img
-"""
-	bp = start + index * 8;
-	xoff = FetchByte(bp);
-	yoff = FetchByte(bp);
-	width = FetchByte(bp);
-	height = FetchByte(bp);
-	offset = FetchLE32(bp);
-	if (offset < 0) {  // High bit of width
-		offset &= 0x7FFFFFFF;
-		width += 256;
-	}
 
-	sp = start + offset - 4;
-	dp = image + xoff + yoff * iadd;
-	for (i = 0; i < height; ++i) {
-		memcpy(dp, sp, width);
-		dp += iadd;
-		sp += width;
-"""
 class WAR_PALETTE(WAR_RESOURCE):
 	def __init__(self, index, data, size):
 		super(WAR_PALETTE, self).__init__(index, data, size)
