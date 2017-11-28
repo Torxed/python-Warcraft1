@@ -220,7 +220,7 @@ class main(pyglet.window.Window):
 		self.active_page = 'main_menu'
 		self.active_sprites = OrderedDict()
 
-		self.add_sprite(page='main_menu', itemName='main_menu', obj=main_menu(batch=self.pages['main_menu']['batch']))
+		#self.add_sprite(page='main_menu', itemName='main_menu', obj=main_menu(batch=self.pages['main_menu']['batch']))
 		self.add_sprite(page='main_menu', itemName='house', obj=AnimatedSprite(war_data=game_data.sprites[315], palette=game_data.colorPalettes[416], batch=self.pages['main_menu']['batch'], x=30, y=30))
 		#self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False))
 		
