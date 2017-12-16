@@ -83,6 +83,8 @@ class WAR_RESOURCE():
 		self.compressed = True if self.found_size >> 24 == 0x20 else False
 		self.extracted_size = self.found_size & 0x1FFFFFFF
 		self.corrupted = False
+		self.width = 0
+		self.height = 0
 
 		#print('[#{}]<Comp:{}> Packed Size: {}, Extracted size: {}'.format(index, self.compressed, size, self.extracted_size))
 			
@@ -99,9 +101,76 @@ class WAR_RESOURCE():
 		else:
 			self.data = data
 
+class WAR_TILES(WAR_RESOURCE):
+	def __init__(self, index, data, size):
+		WAR_RESOURCE.__init__(self, index, data, size)
+		self.numOfTiles = self.extracted_size / 8 # 8?
+		self.data = data
+		#print('Tile len:', index, len(data), len(data)/2, len(data)/8, len(data)/16)
+		self.size = size
+		self.tiles_per_row = 16 # 16? 8*2?
+		self.width = 8#self.tiles_per_row * 16 # 16? is 16 the known width/height of a tile?
+		self.height = 8#self.tiles_per_row * 16 # 16? #((self.numOfTiles + self.tiles_per_row - 1) / self.tiles_per_row) * 16 # 16?
+
+	def DecodeMiniTile(self, img, palette, gamma_correction=conf['gamma_correction'], supress_gamma=True):#, flip_x, flip_y):
+		flip = [7,6,5,4,3,2,1,0,8]
+
+		print(len(self.data), len(self.data)/3)
+		print([img])
+		print(len(palette['R']), len(palette['G']), len(palette['B']))
+
+		png = [c for c in img]
+		for c in img:
+			for y in range(8):
+				for x in range(8):
+					c8bit = unpack('<B', self.data[y * 8 + x])[0]-1
+					print('Color:', c8bit)
+					print(len(palette['R']))
+					print(palette['R'][c8bit])
+					print(palette['G'][c8bit])
+					print(palette['B'][c8bit])
+					r,g,b,a = unpack('B', palette['R'][c8bit])[0], unpack('B', palette['G'][c8bit])[0], unpack('B', palette['B'][c8bit])[0], 255
+				
+					if supress_gamma:
+						png[y * self.width + x] = pack('<4B', *(min(int(r*gamma_correction), 255), min(int(g*gamma_correction), 255), min(int(b*gamma_correction), 255), a))
+					else:
+						try:
+							png[y * self.width + x] = pack('<4B', *(int(r*gamma_correction), int(g*gamma_correction), int(b*gamma_correction), a))
+						except:
+							raise ValueError('Gamma {} to high.'.format((int(r*gamma_correction), int(g*gamma_correction), int(b*gamma_correction), a)))
+
+		return ''.join(png) #TODO: Fix this for py3
+
+	def to_png(self, tile_set, palette, gamma_correction=conf['gamma_correction'], supress_gamma=True):
+
+		img = gen_solid_image(self.width, self.height)
+		print('Generating {}x{} size image'.format(self.width, self.height))
+		#print([img.data])
+
+		#for i in range(self.tiles_per_row):
+		#mp = tile_set[i*8]
+		#	for y in range(2):
+		#		for x in range(2):
+		#offset = unpack('B', tile_set[x+y*2])[0]
+		#img.data = self.DecodeMiniTile(img.data, x+(i%self.tiles_per_row), y + (i/self.tiles_per_row) * 2)#, (offset&0xFFFC) << 1, offset & 2, offset & 1)
+		img.data = self.DecodeMiniTile(img.data, palette)#, (offset&0xFFFC) << 1, offset & 2, offset & 1)
+
+		return img
+		#print([img.data])
+		#conf['sprites'][189] = {'type' : 'tile_set', 'data' : None, 'description' : "Summer 1"}
+		#conf['sprites'][190] = {'type' : 'tiles', 'data' : None, 'description' : "Summer 2"}
+
+class WAR_TILESET(WAR_RESOURCE):
+	def __init__(self, index, data, size):
+		WAR_RESOURCE.__init__(self, index, data, size)
+
+	def __getitem__(self, index):
+		return self.data[index]
+
+
 class WAR_SPRITE(WAR_RESOURCE):
 	def __init__(self, index, data, size):
-		super(WAR_SPRITE, self).__init__(index, data, size)
+		WAR_RESOURCE.__init__(self, index, data, size)
 		self.frames = OrderedDict()
 
 		# B - size 1
@@ -125,18 +194,18 @@ class WAR_SPRITE(WAR_RESOURCE):
 		# 	is compressed and the compression is linewise.
 		# 	Lines are assembled by reading them blockwise, where each block starts with a single
 		# 	byte Head, that gives further instructions:
-		# 	• 0x00 → EndOfLine
-		# 	• 0xFF → EndOfFrame
-		# 	• 0x80 & Head = 0 → Head-many uncompressed pixels follow
-		# 	• 0x80 & Head != 0 → ((0x7F & Head) + 1)-many transparent pixels
+		# 	* 0x00 -> EndOfLine
+		# 	* 0xFF -> EndOfFrame
+		# 	* 0x80 & Head = 0 -> Head-many uncompressed pixels follow
+		# 	* 0x80 & Head != 0 -> ((0x7F & Head) + 1)-many transparent pixels
 
 		offset = 0
 		self.frameCount = unpack('<H', self.data[offset:offset+2])[0]
 		offset += calcsize('<H')
 
-		self.max_width = unpack('B', self.data[offset:offset+1])[0]
+		self.width = unpack('B', self.data[offset:offset+1])[0]
 		offset += 1
-		self.max_height = unpack('B', self.data[offset:offset+1])[0]
+		self.height = unpack('B', self.data[offset:offset+1])[0]
 		offset += 1
 
 		#print('Frames:', self.frameCount)
@@ -187,9 +256,9 @@ class WAR_SPRITE(WAR_RESOURCE):
 		index = 0
 		for y in range(self.frames[frame]['height']):
 			for x in range(self.frames[frame]['width']):
-				c8bit = self.frames[frame]['data'][y][x] #unpack('<B', self.frames[frame][index:index+1])[0]
+				c8bit = unpack('B', self.frames[frame]['data'][y][x])[0] #unpack('<B', self.frames[frame][index:index+1])[0]
 				try:
-					r,g,b,a = palette['R'][c8bit], palette['G'][c8bit], palette['B'][c8bit], 255
+					r,g,b,a = unpack('B', palette['R'][c8bit])[0], unpack('B', palette['G'][c8bit])[0], unpack('B', palette['B'][c8bit])[0], 255
 				except:
 					raise KeyError('Color {} not in palette: {}'.format(c8bit, palette))
 
@@ -207,7 +276,7 @@ class WAR_SPRITE(WAR_RESOURCE):
 
 class WAR_PALETTE(WAR_RESOURCE):
 	def __init__(self, index, data, size):
-		super(WAR_PALETTE, self).__init__(index, data, size)
+		WAR_RESOURCE.__init__(self, index, data, size)
 		self.shades = {'R' : b'', 'G': b'', 'B' : b''}
 
 		try:
@@ -231,31 +300,31 @@ class WAR_PALETTE(WAR_RESOURCE):
 
 class WAR_IMAGE(WAR_RESOURCE):
 	def __init__(self, index, data, size):
-		super(WAR_IMAGE, self).__init__(index, data, size)
+		WAR_RESOURCE.__init__(self, index, data, size)
 
 	def to_png(self, palette, gamma_correction=conf['gamma_correction'], supress_gamma=True):
 		""" It's not actually a full fledged PNG.
 		But sort of is. Just missing the header."""
 
 		## == First four bytes, is the width and height.
-		width = unpack('<H', self.data[0:2])[0]
-		height = unpack('<H', self.data[2:4])[0]
+		self.width = unpack('<H', self.data[0:2])[0]
+		self.height = unpack('<H', self.data[2:4])[0]
 		data = self.data[4:]
 
 		## == The rest is palette-positions, not RGB colors.
 		## == First, we create a solid image-placeholder with RGBA format.
-		img = gen_solid_image(width, height)
+		img = gen_solid_image(self.width, self.height)
 		## == We create row placeholders,
 		##    Mainly becase WAR images are calculated from top down
 		##    but PNG/RGBA are bottom up format. So at the end, we'll do a
 		##    reverse(rows) before building the image.
-		rows = [b'']*height
+		rows = [b'']*self.height
 		index = 0
-		for y in range(height):
-			for x in range(width):
+		for y in range(self.height):
+			for x in range(self.width):
 				c8bit = unpack('<B', data[index:index+1])[0]
 				try:
-					r,g,b,a = palette['R'][c8bit], palette['G'][c8bit], palette['B'][c8bit], 255
+					r,g,b,a = unpack('B', palette['R'][c8bit])[0], unpack('B', palette['G'][c8bit])[0], unpack('B', palette['B'][c8bit])[0], 255
 				except:
 					raise KeyError('Color {} not in palette: {}'.format(c8bit, palette))
 
@@ -287,6 +356,8 @@ class WAR():
 		self.colorPalettes = {}
 		self.images = {}
 		self.sprites = {}
+		self.tiles = {}
+		self.tile_sets = {}
 
 		self.header = self.parse_header()
 		self.read_file_table()
@@ -356,6 +427,14 @@ class WAR():
 			elif conf['sprites'][i]['type'] == 'sprite':
 				self.sprites[i] = WAR_SPRITE(i, self.data[data_start:data_stop], size=data_stop-data_start)
 				self.objects[i] = self.sprites[i]
+
+			elif conf['sprites'][i]['type'] == 'tiles':
+				self.tiles[i] = WAR_TILES(i, self.data[data_start:data_stop], size=data_stop-data_start)
+				self.objects[i] = self.tiles[i]
+
+			elif conf['sprites'][i]['type'] == 'tile_set':
+				self.tile_sets[i] = WAR_TILESET(i, self.data[data_start:data_stop], size=data_stop-data_start)
+				self.objects[i] = self.tile_sets[i]
 
 			#else:
 			#	self.objects[i] = WAR_RESOURCE(i, self.data[data_start:data_stop], size=data_stop-data_start)

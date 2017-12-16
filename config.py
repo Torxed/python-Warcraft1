@@ -15,7 +15,172 @@ conf = {}
 conf['resolution'] = Resolution(scaler=2.5)
 conf['gamma_correction'] = 4.0
 
+conf['colorMap'] = {}
+## == This is a [image_id => color_palette] map
+##    Each image uses a color palette (traditionally)
+##    There for we need to map which image id uses what color map.
+#-
+##    TODO: Some of these are pink, need to clean that up (transparent?)
+##    TODO: Some might be mapped wrong (see above todo)
+conf['colorMap'][256] = 262
+conf['colorMap'][257] = 262
+conf['colorMap'][258] = 260
+conf['colorMap'][363] = 260
+conf['colorMap'][261] = 260
+conf['colorMap'][364] = 260
+conf['colorMap'][365] = 260
+conf['colorMap'][406] = 457
+conf['colorMap'][407] = 217
+conf['colorMap'][408] = 262
+conf['colorMap'][409] = 217
+conf['colorMap'][410] = 217
+conf['colorMap'][411] = 416
+conf['colorMap'][412] = 416
+conf['colorMap'][415] = 416
+conf['colorMap'][417] = 418
+conf['colorMap'][419] = 414
+conf['colorMap'][420] = 414
+conf['colorMap'][421] = 416
+conf['colorMap'][422] = 416
+conf['colorMap'][456] = 260
+conf['colorMap'][458] = 260
+conf['colorMap'][470] = 260
+conf['colorMap'][218] = 262
+conf['colorMap'][219] = 262
+conf['colorMap'][220] = 262
+conf['colorMap'][221] = 262
+conf['colorMap'][222] = 262
+conf['colorMap'][223] = 262
+conf['colorMap'][224] = 262
+conf['colorMap'][225] = 262
+conf['colorMap'][226] = 260 # Wrong / Need cleaning
+conf['colorMap'][227] = 260 # Wrong / Need cleaning
+conf['colorMap'][228] = 262
+conf['colorMap'][229] = 262
+conf['colorMap'][233] = 262
+conf['colorMap'][234] = 217
+conf['colorMap'][235] = 262
+conf['colorMap'][236] = 217
+conf['colorMap'][237] = 262
+conf['colorMap'][238] = 262
+conf['colorMap'][239] = 262
+conf['colorMap'][240] = 262
+conf['colorMap'][241] = 262
+conf['colorMap'][242] = 262
+conf['colorMap'][243] = 260
+conf['colorMap'][244] = 262
+conf['colorMap'][245] = 262
+conf['colorMap'][246] = 262
+conf['colorMap'][247] = 262
+conf['colorMap'][248] = 262
+conf['colorMap'][249] = 260
+conf['colorMap'][250] = 423
+conf['colorMap'][362] = 260
+conf['colorMap'][254] = 260
+
+## == Sprites:
+conf['colorMap'][279] = 217
+conf['colorMap'][280] = 217
+conf['colorMap'][281] = 217
+conf['colorMap'][282] = 217
+conf['colorMap'][283] = 217
+conf['colorMap'][284] = 217
+conf['colorMap'][285] = 217
+conf['colorMap'][286] = 217
+conf['colorMap'][287] = 217
+conf['colorMap'][288] = 217
+conf['colorMap'][289] = 217
+conf['colorMap'][290] = 217
+conf['colorMap'][291] = 217
+conf['colorMap'][292] = 217
+conf['colorMap'][293] = 217
+conf['colorMap'][294] = 217
+conf['colorMap'][295] = 217
+conf['colorMap'][296] = 217
+conf['colorMap'][297] = 217
+conf['colorMap'][298] = 217
+conf['colorMap'][299] = 217
+conf['colorMap'][300] = 217
+conf['colorMap'][301] = 217
+conf['colorMap'][302] = 217
+conf['colorMap'][303] = 217
+conf['colorMap'][304] = 217
+conf['colorMap'][305] = 217
+conf['colorMap'][306] = 217
+conf['colorMap'][307] = 217
+conf['colorMap'][308] = 217
+conf['colorMap'][309] = 217
+conf['colorMap'][310] = 217
+conf['colorMap'][311] = 217
+conf['colorMap'][312] = 217
+conf['colorMap'][313] = 217
+conf['colorMap'][314] = 217
+conf['colorMap'][315] = 217
+conf['colorMap'][316] = 217
+conf['colorMap'][317] = 217
+conf['colorMap'][318] = 217
+conf['colorMap'][319] = 217
+conf['colorMap'][320] = 217
+conf['colorMap'][321] = 217
+conf['colorMap'][322] = 217
+conf['colorMap'][323] = 217
+conf['colorMap'][324] = 217
+conf['colorMap'][325] = 217
+conf['colorMap'][326] = 217
+conf['colorMap'][327] = 217
+conf['colorMap'][328] = 217
+conf['colorMap'][329] = 217
+conf['colorMap'][330] = 217
+conf['colorMap'][331] = 217
+conf['colorMap'][332] = 217
+conf['colorMap'][333] = 217
+conf['colorMap'][334] = 217
+conf['colorMap'][335] = 217
+conf['colorMap'][336] = 217
+conf['colorMap'][337] = 217
+conf['colorMap'][338] = 217
+conf['colorMap'][339] = 217
+conf['colorMap'][340] = 217
+conf['colorMap'][341] = 217
+conf['colorMap'][342] = 217
+conf['colorMap'][343] = 217
+conf['colorMap'][344] = 217
+conf['colorMap'][345] = 217
+conf['colorMap'][346] = 217
+conf['colorMap'][347] = 217
+conf['colorMap'][348] = 217
+conf['colorMap'][349] = 217
+conf['colorMap'][350] = 217
+conf['colorMap'][351] = 217
+conf['colorMap'][352] = 217
+conf['colorMap'][353] = 217
+conf['colorMap'][354] = 217
+conf['colorMap'][355] = 217
+conf['colorMap'][356] = 217
+conf['colorMap'][357] = 217
+conf['colorMap'][358] = 217
+conf['colorMap'][359] = 217
+conf['colorMap'][360] = 217
+conf['colorMap'][361] = 217
+conf['colorMap'][425] = 217
+conf['colorMap'][426] = 424
+conf['colorMap'][427] = 424
+conf['colorMap'][428] = 423
+conf['colorMap'][429] = 423
+conf['colorMap'][430] = 423
+conf['colorMap'][431] = 423
+
+conf['ui'] = {}
+## == This is a ease of access map.
+##    It will contain a hirarchy of game objects.
+##    Slightly inefficient use of memory, but will ease the
+##    game building process.
 conf['sprites'] = {}
+## == This maps what sprite_id is of what type of sprite.
+##    This is so that we can match for instance, when
+##    a certain sprite is selected, and a right-click or command occurs,
+##    and if there's a target. What action should be taken.
+##    Each image 
 conf['sprites'][0] = {'type' : 'music', 'data' : None, 'description' : ''}
 conf['sprites'][1] = {'type' : 'music', 'data' : None, 'description' : ''}
 conf['sprites'][2] = {'type' : 'music', 'data' : None, 'description' : ''}
@@ -207,10 +372,12 @@ conf['sprites'][187] = {'type' : 'level_info', 'data' : None, 'description' : "U
 conf['sprites'][188] = {'type' : 'level_info', 'data' : None, 'description' : "Unknown Level"} 
 conf['sprites'][189] = {'type' : 'tile_set', 'data' : None, 'description' : "Summer 1"}
 conf['sprites'][190] = {'type' : 'tiles', 'data' : None, 'description' : "Summer 2"}
-conf['sprites'][191] = {'type' : 'file_palette_short', 'data' : None, 'description' : "Summer 3"}
+#conf['sprites'][191] = {'type' : 'file_palette_short', 'data' : None, 'description' : "Summer 3"}
+conf['sprites'][191] = {'type' : 'palette', 'data' : None, 'description' : "Summer 3"}
 conf['sprites'][192] = {'type' : 'tile_set', 'data' : None, 'description' : "Barrens 1"}
 conf['sprites'][193] = {'type' : 'tiles', 'data' : None, 'description' : "Barrens 2"}
-conf['sprites'][194] = {'type' : 'file_palette_short', 'data' : None, 'description' : "Barrens 3"}
+#conf['sprites'][194] = {'type' : 'file_palette_short', 'data' : None, 'description' : "Barrens 3"}
+conf['sprites'][194] = {'type' : 'palette', 'data' : None, 'description' : "Barrens 3"}
 conf['sprites'][195] = {'type' : 'tile_set', 'data' : None, 'description' : "Dungeon 1"}
 conf['sprites'][196] = {'type' : 'tiles', 'data' : None, 'description' : "Dungeon 2"}
 conf['sprites'][197] = {'type' : 'file_palette_short', 'data' : None, 'description' : "Dungeon 3"}
@@ -234,21 +401,58 @@ conf['sprites'][214] = {'type' : 'unknown', 'data' : None, 'description' : "Unkn
 conf['sprites'][215] = {'type' : 'unknown', 'data' : None, 'description' : "Unknown file (short, offset, 2x data PSQR) (P-splines via QR?)"}
 conf['sprites'][216] = {'type' : 'image', 'data' : None, 'description' : "Background 'Blizzard'"}
 conf['sprites'][217] = {'type' : 'palette', 'data' : None, 'description' : "For Background"}
+
+conf['ui']['human'] = {}
+conf['ui']['human']['sidebars'] = {}
+conf['ui']['orc'] = {}
+conf['ui']['orc']['sidebars'] = {}
+
+conf['ui']['human']['sidebars']['top'] = {'normal' : 218}
+conf['ui']['orc']['sidebars']['top'] = {'normal' : 219}
+conf['ui']['human']['sidebars']['right'] = {'normal' : 220}
+conf['ui']['orc']['sidebars']['right'] = {'normal' : 221}
+conf['ui']['human']['sidebars']['bottom'] = {'normal' : 222}
+conf['ui']['orc']['sidebars']['bottom'] = {'normal' : 223}
 conf['sprites'][218] = {'type' : 'image', 'data' : None, 'description' : "Topbar (Humans)"}
 conf['sprites'][219] = {'type' : 'image', 'data' : None, 'description' : "Topbar (Orcs)"}
 conf['sprites'][220] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Right (Humans)"}
 conf['sprites'][221] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Right (Orcs)"}
 conf['sprites'][222] = {'type' : 'image', 'data' : None, 'description' : "Lower Bar (Humans)"}
 conf['sprites'][223] = {'type' : 'image', 'data' : None, 'description' : "Lower Bar (Orcs)"}
+
+conf['ui']['human']['sidebars']['left'] = {'minimap' : {'empty' : 224, 'black' : 228}, 'normal' : 226}
+conf['ui']['orc']['sidebars']['left'] = {'minimap' : {'empty' : 225, 'black' : 229}, 'normal' : 227}
 conf['sprites'][224] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Left Minimap Empty (Humans)"}
 conf['sprites'][225] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Left Minimap Empty (Orcs)"}
 conf['sprites'][226] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Left (Humans)"}
 conf['sprites'][227] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Left (Orcs)"}
 conf['sprites'][228] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Left Minimap Black (Humans)"}
 conf['sprites'][229] = {'type' : 'image', 'data' : None, 'description' : "Sidebar Left Minimap Black (Orcs)"}
+
 conf['sprites'][230] = {'type' : 'ui', 'data' : None, 'description' : "Warcraft CD"}
 conf['sprites'][231] = {'type' : 'ui', 'data' : None, 'description' : "Purchase the Retail Version of Warcraft"}
 conf['sprites'][232] = {'type' : 'ui', 'data' : None, 'description' : "Purchase the Retail Version of Warcraft"}
+
+conf['ui']['human']['boxes'] = {}
+conf['ui']['human']['boxes']['large'] = 233
+conf['ui']['human']['boxes']['small'] = 235
+conf['ui']['orc']['boxes'] = {}
+conf['ui']['orc']['boxes']['large'] = 234
+conf['ui']['orc']['boxes']['small'] = 236
+
+## == These are essentially douplets.
+##    Since we're missing pointers in Python (any good looking ones, this will have to do):
+conf['ui']['human']['buttons'] = {}
+conf['ui']['human']['buttons']['large'] = {'normal' : 237, 'clicked' : 238}
+conf['ui']['human']['buttons']['medium'] = {'normal' : 239, 'clicked' : 240}
+conf['ui']['human']['buttons']['small'] = {'normal' : 241, 'clicked' : 242}
+conf['ui']['human']['buttons']['arrow_left'] = {'normal' : 244, 'clicked' : 244}
+conf['ui']['orc']['buttons'] = {}
+conf['ui']['orc']['buttons']['large'] = {'normal' : 237, 'clicked' : 238}
+conf['ui']['orc']['buttons']['medium'] = {'normal' : 239, 'clicked' : 240}
+conf['ui']['orc']['buttons']['small'] = {'normal' : 239, 'clicked' : 240}
+conf['ui']['orc']['buttons']['arrow_left'] = {'normal' : 244, 'clicked' : 244}
+
 conf['sprites'][233] = {'type' : 'image', 'data' : None, 'description' : "Large Box (Humans)"}
 conf['sprites'][234] = {'type' : 'image', 'data' : None, 'description' : "Large Box (Orcs)"}
 conf['sprites'][235] = {'type' : 'image', 'data' : None, 'description' : "Small Box (Humans)"}
@@ -295,6 +499,7 @@ conf['sprites'][275] = {'type' : 'cursor', 'data' : None, 'description' : "Scrol
 conf['sprites'][276] = {'type' : 'cursor', 'data' : None, 'description' : "Scroll Bottomleft"}
 conf['sprites'][277] = {'type' : 'cursor', 'data' : None, 'description' : "Scroll Left"}
 conf['sprites'][278] = {'type' : 'cursor', 'data' : None, 'description' : "Scroll Topleft"}
+
 conf['sprites'][279] = {'type' : 'sprite', 'data' : None, 'description' : "Human Warrior"}
 conf['sprites'][280] = {'type' : 'sprite', 'data' : None, 'description' : "Orc Grunt"}
 conf['sprites'][281] = {'type' : 'sprite', 'data' : None, 'description' : "Human Peasant"}
@@ -378,6 +583,7 @@ conf['sprites'][358] = {'type' : 'sprite', 'data' : None, 'description' : "Unit_
 conf['sprites'][359] = {'type' : 'sprite', 'data' : None, 'description' : "UI Pictures Orcs"}
 conf['sprites'][360] = {'type' : 'sprite', 'data' : None, 'description' : "UI Pictures Humans"}
 conf['sprites'][361] = {'type' : 'sprite', 'data' : None, 'description' : "UI Pictures Icons"}
+
 conf['sprites'][362] = {'type' : 'image', 'data' : None, 'description' : "Menu Button"}
 conf['sprites'][363] = {'type' : 'image', 'data' : None, 'description' : "Menu Button (Pressed)"}
 conf['sprites'][364] = {'type' : 'image', 'data' : None, 'description' : "Empty Button"}
