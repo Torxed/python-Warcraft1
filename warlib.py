@@ -323,10 +323,16 @@ class WAR_IMAGE(WAR_RESOURCE):
 		for y in range(self.height):
 			for x in range(self.width):
 				c8bit = unpack('<B', data[index:index+1])[0]
+
 				try:
-					r,g,b,a = unpack('B', palette['R'][c8bit])[0], unpack('B', palette['G'][c8bit])[0], unpack('B', palette['B'][c8bit])[0], 255
+					# Python 3
+					r,g,b,a = palette['R'][c8bit], palette['G'][c8bit], palette['B'][c8bit], 255
 				except:
-					raise KeyError('Color {} not in palette: {}'.format(c8bit, palette))
+					try:
+						# Python 2
+						r,g,b,a = unpack('B', palette['R'][c8bit])[0], unpack('B', palette['G'][c8bit])[0], unpack('B', palette['B'][c8bit])[0], 255
+					except:
+						raise KeyError('Color {} not in palette: {}'.format(c8bit, palette))
 
 				if supress_gamma:
 					rows[y] += pack('<4B', *(min(int(r*gamma_correction), 255), min(int(g*gamma_correction), 255), min(int(b*gamma_correction), 255), a))

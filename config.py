@@ -13,6 +13,7 @@ class Resolution():
 
 conf = {}
 conf['resolution'] = Resolution(scaler=2.5)
+conf['position'] = {'x' : 800, 'y' : 800}
 conf['gamma_correction'] = 4.0
 
 conf['colorMap'] = {}

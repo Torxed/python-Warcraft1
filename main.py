@@ -1,16 +1,42 @@
 #import lzw # Was slightly broken spewing out "EOS" errors.
-from time import sleep # DEBUG
 import pyglet
 from pyglet.gl import *
 from collections import OrderedDict
+from os import urandom
 from os.path import isfile
 from math import *
 from time import time
+from threading import Thread
+from time import time, sleep
+from socket import *
+from select import epoll, EPOLLIN # TODO: Replace epoll with select for MS Windows functionality
+from json import loads, dumps
+from socket import *
+from base64 import b64encode
+
+from ui.helpers import generic_sprite
+from ui.elements import text_input, lobby, main_menu, gameUI
+
 pyglet.options['audio'] = ('alsa', 'openal', 'silent')
 key = pyglet.window.key
 
 from config import conf
 from warlib import *
+
+__builtins__.__dict__['cosmic'] = {
+	'pages' : {'main_menu' : {'batch' : pyglet.graphics.Batch(),
+							  'layers' : {0 : pyglet.graphics.OrderedGroup(0),
+										  1 : pyglet.graphics.OrderedGroup(1),
+										  2 : pyglet.graphics.OrderedGroup(2),
+										  3 : pyglet.graphics.OrderedGroup(3)},
+							  'sprites' : {},
+							  'subpages' : {}}
+			   },
+	'merge_pages' : {},
+	'active_page' : 'main_menu',
+	'quit' : False,
+	'input_to' : None,
+}
 
 ## == TODO:
 #		Check the following palettes: 191, 194, 197
@@ -33,169 +59,104 @@ from warlib import *
 # https://en.wikipedia.org/wiki/Indexed_color
 # https://en.wikipedia.org/wiki/List_of_monochrome_and_RGB_palettes#3-3-2_bit_RGB
 
-def gen_solid_image(width, height, color='#FF0000', alpha=255):
-	if type(color) == str:
-		c = color.lstrip("#")
-		c = max(6-len(c),0)*"0" + c
-		r = int(c[:2], 16)
-		g = int(c[2:4], 16)
-		b = int(c[4:], 16)
-	else:
-		r,g,b = color
-	
-	c = (r,g,b,alpha)
-	return pyglet.image.SolidColorImagePattern(c).create_image(width, height)
-
 def getTexture(img_id):
 	return game_data.images[img_id].to_png(game_data.colorPalettes[conf['colorMap'][img_id]])
 
-class generic_sprite(pyglet.sprite.Sprite):
-	def __init__(self, texture=None, width=None, height=None, color="#C2C2C2", alpha=int(255), x=None, y=None, moveable=False, batch=None, bind=None):
-		
-		if not width:
-			width = 10
-		if not height:
-			height = 10
+#def genUID():
+#	return hash(bytes(str(time()), 'UTF-8')+urandom(4))
 
-		if type(texture) == str:
-			if not texture or not isfile(texture):
-				#print('No texutre could be loaded for sprite, generating a blank one.')
-				## If no texture was supplied, we will create one
-				self.texture = gen_solid_image(int(width*conf['resolution'].scale()), int(height*conf['resolution'].scale()), color, alpha)
-			else:
-				self.texture = pyglet.image.load(texture)
-		elif texture is None:
-			self.texture = gen_solid_image(int(width*conf['resolution'].scale()), int(height*conf['resolution'].scale()), color, alpha)
-		else:
-			self.texture = texture
+class reciever(Thread):
+	def __init__(self, core):
+		Thread.__init__(self)
+		self.core = core
+		self.s = socket()
+		self.s.connect(('127.0.0.1', 4433))
+		self.start()
 
-		super(generic_sprite, self).__init__(self.texture)
-		self.batch = batch
-		self.scale = conf['resolution'].scale()
-		self.sprites = OrderedDict()
+	def send(self, d):
+		data = dumps(d)
+		self.s.send(bytes(data,'UTF-8'))
 
-		if x:
-			self.x = x
-		else:
-			self.x = 0
-		if y:
-			self.y = y
-		else:
-			self.y = 0
+	def close(self):
+		self.s.close()
 
-		self.moveable = moveable
+	def run(self):
+		while 1:
+			data = self.s.recv(8192)
+			jdata = loads(data.decode('UTF-8'))
+			print('[Recieved] {}'.format(jdata))
+			self.core['data'].append(jdata)
 
-		if bind:
-			self.click = bind
+			if 'result' in jdata:
+				if 'asset' in jdata:
+					if jdata['asset'] == 'lobbys':
+						if 'action' in jdata and jdata['action'] == 'list':
+							print('[Lobby] Setting lobby to {}'.format(jdata['result'][0]))
+							self.core['lobby'] = jdata['result'][0] # Show only one lobby'
+							continue
+						elif 'action' in jdata and jdata['action'] == 'create':
+							self.core['lobby'] = jdata['result']['lobby_uid']
+							continue
 
-	def set_batch(self, batch):
-		self.batch = batch
-		for sName, sObj in self.sprites.items():
-			sObj.batch = batch
 
-	def click(self, x, y):
-		"""
-		Usually click_check() is called followed up
-		with a call to this function.
-		Basically what this is, is that a click
-		should occur within the object.
-		Normally a class who inherits Spr() will create
-		their own click() function but if none exists
-		a default must be present.
-		"""
-		return True
 
-	def mouse_inside(self, x, y, button=None):
-		"""
-		When called, we first iterate our sprites.
-		If none of those returned a click, we'll
-		check if we're inside ourselves.
-		This is because some internal sprites might go
-		outside of the object boundaries.
-		"""
-		for sname, sobj in self.sprites.items():
-			check_sobj = sobj.mouse_inside(x, y, button)
-			if check_sobj:
-				return check_sobj
+def hash_dict(d):
+	sorted_keys = sorted(list(d.keys()))
+	keystruct = ''.join([str(key)+':'+str(d[key]) for key in sorted_keys])
+	return b64encode(bytes(keystruct, 'UTF-8'))
 
-		if x > self.x and x < (self.x + (self.texture.width*conf['resolution'].scale())):
-			if y > self.y and y < (self.y + (self.texture.height*conf['resolution'].scale())):
-				return self
+class _network(Thread):
+	def __init__(self, host='127.0.0.1', port=4433):
+		Thread.__init__(self)
+		self.poller = epoll()
+		self.socket = socket()
+		self.main_sock = self.socket.fileno()
+		self.poller.register(self.main_sock, EPOLLIN)
+		self.network_events = {}
+		self.socket.connect((host, port))
+		self.alive = True
+		self.start()
 
-	def move(self, x, y):
-		if self.moveable:
-			self.x += x
-			self.y += y
-			for sprite in self.sprites:
-				self.sprites[sprite].x += x
-				self.sprites[sprite].y += y
+	def reg_event(self, d, func):
+		d_hash = hash_dict(d)
+		if not d_hash in self.network_events:
+			self.network_events[d_hash] = {'func' : func, 'dict' : d}
 
-	def update(self):
-		pass
+	def run(self):
+		while self.alive and not cosmic['quit']:
+			for fileno, event in self.poller.poll(0.25):
+				if self.main_sock == fileno:
+					data = self.socket.recv(8192)
+					if len(data) == 0:
+						print('Network died..')
+						self.socket.close()
+						break
 
-	def click(self, x, y):
-		return True
+					if type(data) == bytes:
+						data = data.decode('UTF-8')
+					data = loads(data)
+					print('INC Data:', data)
+					for d_hash in self.network_events:
+						d = self.network_events[d_hash]['dict']
+						if d.items() <= data.items():
+							self.network_events[d_hash]['func'](data)
+		self.socket.close()
 
-	def _draw(self):
-		self.draw()
+	def send(self, data):
+		if type(data) not in (str, bytes):
+			data = dumps(data)
 
-def start_game(x, y):
-	print('Starting the game')
+		self.socket.send(bytes(data, 'UTF-8'))
 
-class main_menu(generic_sprite):
-	def __init__(self, batch=None):
-		super(main_menu, self).__init__(width=conf['resolution'].width(), height=conf['resolution'].height(), alpha=0, batch=batch)
+	def close(self):
+		self.alive = False
 
-		self.sprites['background'] = generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False)
-
-		self.sprites['start_game'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
-		self.sprites['start_game'].x = conf['resolution'].width()/2 - self.sprites['start_game'].width/2
-		self.sprites['start_game'].y = conf['resolution'].height()/2 - self.sprites['start_game'].height/2 - 10
-
-		self.sprites['load_existing_game'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
-		self.sprites['load_existing_game'].x = conf['resolution'].width()/2 - self.sprites['load_existing_game'].width/2
-		self.sprites['load_existing_game'].y = conf['resolution'].height()/2 - self.sprites['load_existing_game'].height/2 - 50
-
-		self.sprites['replay_introduction'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
-		self.sprites['replay_introduction'].x = conf['resolution'].width()/2 - self.sprites['replay_introduction'].width/2
-		self.sprites['replay_introduction'].y = conf['resolution'].height()/2 - self.sprites['replay_introduction'].height/2 - 90
-
-		self.sprites['quit'] = generic_sprite(game_data.images[239].to_png(game_data.colorPalettes[217]), bind=start_game)
-		self.sprites['quit'].x = conf['resolution'].width()/2 - self.sprites['quit'].width/2
-		self.sprites['quit'].y = conf['resolution'].height()/2 - self.sprites['quit'].height/2 - 170
-
-		#self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False)
-
-class gameUI(generic_sprite):
-	def __init__(self, race, batch=None):
-		super(gameUI, self).__init__(width=conf['resolution'].width(), height=conf['resolution'].height(), alpha=0, batch=batch)
-
-		self.race = race
-
-		self.layers = OrderedDict()
-		self.layers['base'] = pyglet.graphics.Batch()
-
-		self.sprites['minimap'] = generic_sprite(getTexture(conf['ui'][self.race]['sidebars']['left']['minimap']['empty']), bind=start_game)
-		self.sprites['minimap'].x = 0
-		self.sprites['minimap'].y = conf['resolution'].height() - self.sprites['minimap'].height
-
-		self.sprites['left_bar'] = generic_sprite(getTexture(conf['ui'][self.race]['sidebars']['left']['normal']), bind=start_game)
-		self.sprites['left_bar'].x = 0
-		self.sprites['left_bar'].y = conf['resolution'].height() - self.sprites['minimap'].height - self.sprites['left_bar'].height
-
-		self.sprites['top_bar'] = generic_sprite(getTexture(conf['ui'][self.race]['sidebars']['top']['normal']), bind=start_game)
-		self.sprites['top_bar'].x = self.sprites['minimap'].width
-		self.sprites['top_bar'].y = conf['resolution'].height() - self.sprites['top_bar'].height
-
-		self.sprites['right_bar'] = generic_sprite(getTexture(conf['ui'][self.race]['sidebars']['right']['normal']), bind=start_game)
-		self.sprites['right_bar'].x = self.sprites['minimap'].width + self.sprites['top_bar'].width
-		self.sprites['right_bar'].y = conf['resolution'].height() - self.sprites['right_bar'].height
-
-		self.sprites['bottom_bar'] = generic_sprite(getTexture(conf['ui'][self.race]['sidebars']['bottom']['normal']), bind=start_game)
-		self.sprites['bottom_bar'].x = self.sprites['minimap'].width
-		self.sprites['bottom_bar'].y = 0
-
-		# grass = tile_set 189 & 190
+try:
+	__builtins__['network'] = None
+	__builtins__['net_class'] = _network
+except:
+	__builtins__.__dict__['network'] = None
+	__builtins__.__dict__['net_class'] = _network
 
 class AnimatedSprite(generic_sprite):
 	def __init__(self, war_data, palette, batch=None, x=10, y=10):
@@ -279,24 +240,28 @@ class Tile(generic_sprite):
 class main(pyglet.window.Window):#								 conf['resolution'].height()
 	def __init__ (self, width=conf['resolution'].width(), height=conf['resolution'].height(), *args, **kwargs):
 		super(main, self).__init__(width, height, *args, **kwargs)
+		self.set_location(conf['position']['x'], conf['position']['y'])
 		self.x, self.y = 0, 0
 
 		self.sprites = OrderedDict()
 		__builtins__.__dict__['game_data'] = WAR(sys.argv[1])
-		self.pages = {'default' : {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}}
-		self.pages['main_menu'] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}
-		self.pages['main_ui'] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}
 
-		self.active_page = 'main_ui' #'main_menu'
+		#self.pages = {'default' : {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}}
+		#self.pages['main_menu'] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}
+		#self.pages['main_ui'] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}
+
+		#cosmic['active_page'] = 'main_menu' #'main_menu'
 		self.active_sprites = OrderedDict()
 
-		#self.add_sprite(page='main_menu', itemName='main_menu', obj=main_menu(batch=self.pages['main_menu']['batch']))
+		self.add_sprite(page='main_menu', itemName='main_menu', obj=main_menu(batch=cosmic['pages']['main_menu']['batch']))
 		#self.add_sprite(page='main_menu', itemName='house', obj=AnimatedSprite(war_data=game_data.sprites[315], palette=game_data.colorPalettes[416], batch=self.pages['main_menu']['batch'], x=30, y=30))
-		self.add_sprite(page='main_ui', itemName='frame', obj=gameUI(race='human', batch=self.pages['main_ui']['batch']))
-		self.add_sprite(page='main_ui', itemName='Warrior', obj=HumanWarrior(batch=self.pages['main_ui']['batch'], x=200, y=200))
-		self.add_sprite(page='main_ui', itemName='Orc', obj=OrcGrunt(batch=self.pages['main_ui']['batch'], x=350, y=200))
+		
+		## Test sprites
+		#self.add_sprite(page='main_ui', itemName='frame', obj=gameUI(race='human', batch=self.pages['main_ui']['batch']))
+		#self.add_sprite(page='main_ui', itemName='Warrior', obj=HumanWarrior(batch=self.pages['main_ui']['batch'], x=200, y=200))
+		#self.add_sprite(page='main_ui', itemName='Orc', obj=OrcGrunt(batch=self.pages['main_ui']['batch'], x=350, y=200))
 
-		self.add_sprite(page='main_ui', itemName='Grass', obj=Tile(193, batch=self.pages['main_ui']['batch'], x=300, y=250))
+		#self.add_sprite(page='main_ui', itemName='Grass', obj=Tile(193, batch=self.pages['main_ui']['batch'], x=300, y=250))
 		#self.add_sprite('main_menu', 'background', generic_sprite(game_data.images[261].to_png(game_data.colorPalettes[260]), moveable=False))
 		
 		#for image in game_data.images:
@@ -312,19 +277,19 @@ class main(pyglet.window.Window):#								 conf['resolution'].height()
 		self.alive = 1
 
 	def add_sprite(self, page, itemName, obj):
-		if not page in self.pages:
-			self.pages[page] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}
+		if not page in cosmic['pages']:
+			cosmic['pages'][page] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict(), 'layers' : {}, 'subpages' : {}}
 
-		obj.set_batch(self.pages[page]['batch'])
-		self.pages[page]['sprites'][itemName] = obj
+		obj.set_batch(cosmic['pages'][page]['batch'])
+		cosmic['pages'][page]['sprites'][itemName] = obj
 		self.sprites[itemName] = obj
 
 	def flush_sprites(self, page=None):
-		if not page: page = self.active_page
+		if not page: page = cosmic['active_page']
 
-		for obj in self.pages[page]['sprites']:
-			self.pages[page]['sprites'][obj].delete()
-			del self.pages[page]['sprites'][obj]
+		for obj in cosmic['pages'][page]['sprites']:
+			cosmic['pages'][page]['sprites'][obj].delete()
+			del cosmic['pages'][page]['sprites'][obj]
 		#for obj in self.pages[page]['batch']
 		#self.pages[page] = {'batch' : pyglet.graphics.Batch(), 'sprites' : OrderedDict()}		
 
@@ -344,6 +309,15 @@ class main(pyglet.window.Window):#								 conf['resolution'].height()
 		if symbol == key.LCTRL:
 			self.active_sprites = OrderedDict()
 
+		print(cosmic['input_to'])
+		try:
+			if cosmic['input_to']:
+				cosmic['input_to'].text += chr(symbol)
+				cosmic['input_to'].changed = True
+				cosmic['input_to'].update()
+		except:
+			pass
+
 		try:
 			del self.keys[symbol]
 		except:
@@ -358,7 +332,9 @@ class main(pyglet.window.Window):#								 conf['resolution'].height()
 
 	def on_mouse_press(self, x, y, button, modifiers):
 		if button == 1:
-			for sprite_name, sprite in self.pages[self.active_page]['sprites'].items():
+			print('Checking all sprites in', cosmic['active_page'])
+			print(cosmic['pages'][cosmic['active_page']]['sprites'])
+			for sprite_name, sprite in cosmic['pages'][cosmic['active_page']]['sprites'].items():
 				if sprite:
 					#print('Clickchecking:', sprite, 'with button', button)
 					sprite_obj = sprite.mouse_inside(x, y, button)
@@ -398,7 +374,7 @@ class main(pyglet.window.Window):#								 conf['resolution'].height()
 		y = 0
 		for palette_id in game_data.colorPalettes.keys():
 			if not game_data.colorPalettes[palette_id].corrupted:
-				self.add_sprite(page='main_menu', itemName='id:{}_pal:{}'.format(index, palette_id), obj=AnimatedSprite(war_data=game_data.sprites[index], palette=game_data.colorPalettes[palette_id], batch=self.pages['main_menu']['batch'], x=x, y=y))
+				self.add_sprite(page='main_menu', itemName='id:{}_pal:{}'.format(index, palette_id), obj=AnimatedSprite(war_data=game_data.sprites[index], palette=game_data.colorPalettes[palette_id], batch=cosmic['pages']['main_menu']['batch'], x=x, y=y))
 				x += (game_data.sprites[index].width * conf['resolution'].scale()) + 5
 				if x+(game_data.sprites[index].width * conf['resolution'].scale()) > self.width:
 					x = 0
@@ -422,7 +398,7 @@ class main(pyglet.window.Window):#								 conf['resolution'].height()
 			self.input = self.input[:-1]
 
 		elif symbol == key.RIGHT:
-			for sName, sObj in self.pages[self.active_page]['sprites'].items():
+			for sName, sObj in cosmic['pages'][cosmic['active_page']]['sprites'].items():
 				sObj.update()
 
 		elif symbol == key.ENTER:
@@ -440,22 +416,49 @@ class main(pyglet.window.Window):#								 conf['resolution'].height()
 			self.input = ''
 		#elif symbol == key.LCTRL:
 
+	def on_move(self, x, y, *args, **kwargs):
+		print(x, y, args)
+
 	def render(self):
 		#t = timer()
 		self.clear()
 
+		## Move sprite from a thread friendly place,
+		## into the main thread's graphical context by initating the objects from the main resource.
+		for page in list(cosmic['merge_pages'].keys()):
+			cosmic['pages'][page] = cosmic['merge_pages'][page]
+
+			cosmic['pages'][page]['batch'] = pyglet.graphics.Batch()
+			for layer in cosmic['pages'][page]['layers']:
+				cosmic['pages'][page]['layers'][layer] = pyglet.graphics.OrderedGroup(layer)
+
+			print('{} contains:'.format(page))
+			print(cosmic['pages'][page]['sprites'])
+			for sprite in cosmic['pages'][page]['sprites']:
+				print('Sprite {}:'.format(sprite))
+				print(cosmic['pages'][page]['sprites'])
+				func = cosmic['pages'][page]['sprites'][sprite][0]
+				params = cosmic['pages'][page]['sprites'][sprite][1]
+
+				if 'batch' in params:
+					params['batch'] = cosmic['pages'][params['batch']]['batch']
+
+				cosmic['pages'][page]['sprites'][sprite] = func(**params)
+
+			del(cosmic['merge_pages'][page])
+
 		## TODO: Uncomment this when auto-updates are ready
-		for sName, sObj in self.pages[self.active_page]['sprites'].items():
+		for sName, sObj in cosmic['pages'][cosmic['active_page']]['sprites'].items():
 			sObj.update()
 
 		#for sprite_name, sprite_obj in self.sprites.items():
 		#	sprite_obj._draw()
-		self.pages[self.active_page]['batch'].draw()
+		cosmic['pages'][cosmic['active_page']]['batch'].draw()
 
 		self.flip()
 
 	def run(self):
-		while self.alive == 1:
+		while self.alive == 1 and cosmic['quit'] is False:
 			self.render()
 
 			# -----------> This is key <----------
@@ -463,6 +466,7 @@ class main(pyglet.window.Window):#								 conf['resolution'].height()
 			# but is required for the GUI to not freeze
 			#
 			event = self.dispatch_events()
+		cosmic['quit'] = True
 
 x = main()
 x.run()
